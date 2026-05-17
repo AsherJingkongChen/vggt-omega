@@ -149,7 +149,7 @@ class DenseHead(nn.Module):
 
         confidence_logits = self.proj_conf(fused)
         confidence_logits = F.pixel_shuffle(confidence_logits, self.final_shuffle_factor)
-        confidence_logits = confidence_logits.permute(0, 2, 3, 1).squeeze(-1)
+        confidence_logits = confidence_logits.permute(0, 2, 3, 1)
 
         depth = torch.exp(depth_logits)
         depth_conf = 1.0 + torch.exp(confidence_logits)
