@@ -12,6 +12,7 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from .utils import create_uv_grid, position_grid_to_embed
 
@@ -124,7 +125,6 @@ class DenseHead(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if frames_start_idx is not None and frames_end_idx is not None:
             num_frames = frames_end_idx - frames_start_idx
-        patch_h, patch_w = height // self.patch_size, width // self.patch_size
 
         multi_scale_features = []
         for feature_idx, layer_idx in enumerate(self.intermediate_layer_idx):
@@ -134,15 +134,10 @@ class DenseHead(nn.Module):
             x = x[:, :, patch_token_start:]
             if frames_start_idx is not None and frames_end_idx is not None:
                 x = x[:, frames_start_idx:frames_end_idx]
-            x = x.reshape(batch_size * num_frames, -1, x.shape[-1])
-            x = self.norm(x)
-            x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
-            x = self.projects[feature_idx](x)
-            x = self._apply_pos_embed(x, width, height)
-            x = self.resize_layers[feature_idx](x)
+            x = checkpoint(self._run_multi_scale_layer, x, feature_idx, height, width, use_reentrant=False)
             multi_scale_features.append(x)
 
-        fused = self.scratch_forward(multi_scale_features)
+        fused = checkpoint(self.scratch_forward, multi_scale_features, use_reentrant=False)
         fused = self._apply_pos_embed(fused, width, height)
         fused = fused.float()
         if self.feature_only:
@@ -169,6 +164,17 @@ class DenseHead(nn.Module):
             raise TypeError(f"DenseHead outputs must be fp32, got depth={depth.dtype}, conf={depth_conf.dtype}")
 
         return depth, depth_conf
+
+    def _run_multi_scale_layer(self, patch_tokens: torch.Tensor, feature_idx: int, height: int, width: int) -> torch.Tensor:
+        patch_h, patch_w = height // self.patch_size, width // self.patch_size
+
+        patch_tokens = patch_tokens.flatten(0, 1)
+        patch_tokens = self.norm(patch_tokens)
+        patch_tokens = patch_tokens.permute(0, 2, 1).unflatten(2, (patch_h, patch_w))
+        patch_tokens = self.projects[feature_idx](patch_tokens)
+        patch_tokens = self._apply_pos_embed(patch_tokens, width, height)
+        patch_tokens = self.resize_layers[feature_idx](patch_tokens)
+        return patch_tokens
 
     def _apply_pos_embed(self, x: torch.Tensor, width: int, height: int, ratio: float = 0.1) -> torch.Tensor:
         patch_w = x.shape[-1]

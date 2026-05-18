@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from vggt_omega.models.layers import SelfAttentionBlock
 
@@ -65,8 +66,9 @@ class TextAlignmentHead(nn.Module):
 
         language_token = self.language_token.expand(batch_size, -1, -1)
         readout_tokens = torch.cat([language_token, camera_and_register_tokens], dim=1)
+        rope_sincos = None
         for block in self.readout_blocks:
-            readout_tokens = block(readout_tokens, None)
+            readout_tokens = checkpoint(block, readout_tokens, rope_sincos, use_reentrant=False)
 
         language_token = readout_tokens[:, 0].float()
         with torch.autocast(language_token.device.type, enabled=False):

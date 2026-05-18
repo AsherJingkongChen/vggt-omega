@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from vggt_omega.models.layers import SelfAttentionBlock
 
@@ -63,12 +64,14 @@ class CameraHead(nn.Module):
         camera_and_register_tokens = camera_and_register_tokens.reshape(batch_size, num_frames * patch_token_start, -1)
         rope_sincos = None
         for block in self.trunk:
-            camera_and_register_tokens = block(camera_and_register_tokens, rope_sincos)
+            camera_and_register_tokens = checkpoint(block, camera_and_register_tokens, rope_sincos, use_reentrant=False)
 
         camera_and_register_tokens = camera_and_register_tokens.reshape(batch_size, num_frames, patch_token_start, -1)
         camera_tokens = camera_and_register_tokens[:, :, 0].float()
         with torch.autocast(camera_tokens.device.type, enabled=False):
-            return _apply_camera_activation(self.camera_branch(self.trunk_norm(camera_tokens)))
+            camera_tokens = self.trunk_norm(camera_tokens)
+            camera_tokens = self.camera_branch(camera_tokens)
+            return _apply_camera_activation(camera_tokens)
 
 
 def _apply_camera_activation(raw_camera: torch.Tensor) -> torch.Tensor:
