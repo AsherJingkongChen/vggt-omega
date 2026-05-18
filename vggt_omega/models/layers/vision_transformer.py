@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn.init
 from torch import Tensor, nn
+from torch.utils.checkpoint import checkpoint
 
 from . import LayerScale, Mlp, PatchEmbed, RMSNorm, RopePositionEmbedding, SelfAttentionBlock, SwiGLUFFN
 from .utils import named_apply
@@ -237,7 +238,7 @@ class DinoVisionTransformer(nn.Module):
                 rope_sincos = [self.rope_embed(H=H, W=W) for H, W in rope]
             else:
                 rope_sincos = [None for r in rope]
-            x = blk(x, rope_sincos)
+            x = checkpoint(blk, x, rope_sincos, use_reentrant=False)
         all_x = x
         output = []
         for idx, (x, masks) in enumerate(zip(all_x, masks_list)):
@@ -282,7 +283,7 @@ class DinoVisionTransformer(nn.Module):
                 rope_sincos = self.rope_embed(H=H, W=W)
             else:
                 rope_sincos = None
-            x = blk(x, rope_sincos)
+            x = checkpoint(blk, x, rope_sincos, use_reentrant=False)
             if i in blocks_to_take:
                 output.append(x)
         assert len(output) == len(blocks_to_take), f"only {len(output)} / {len(blocks_to_take)} blocks found"

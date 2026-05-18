@@ -6,6 +6,7 @@
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 from vggt_omega.models.layers import Mlp, RopePositionEmbedding, SelfAttentionBlock
 from vggt_omega.models.layers.vision_transformer import DinoVisionTransformer
@@ -128,7 +129,8 @@ class Aggregator(nn.Module):
 
         outputs = []
         for block_idx in range(self.depth):
-            tokens, frame_tokens = self._run_frame_block(
+            tokens, frame_tokens = checkpoint(
+                self._run_frame_block,
                 tokens,
                 batch_size,
                 num_frames,
@@ -136,8 +138,10 @@ class Aggregator(nn.Module):
                 embed_dim,
                 block_idx,
                 frame_rope,
+                use_reentrant=False,
             )
-            tokens = self._run_inter_frame_attention_block(
+            tokens = checkpoint(
+                self._run_inter_frame_attention_block,
                 tokens,
                 batch_size,
                 num_frames,
@@ -145,6 +149,7 @@ class Aggregator(nn.Module):
                 embed_dim,
                 block_idx,
                 self.inter_frame_attention_types[block_idx],
+                use_reentrant=False,
             )
             if block_idx in self.cached_layer_indices:
                 outputs.append(torch.cat([frame_tokens, tokens], dim=-1))
