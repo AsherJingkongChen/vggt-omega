@@ -58,9 +58,6 @@ class TextAlignmentHead(nn.Module):
         if patch_token_start > tokens.shape[2]:
             raise ValueError(f"patch_token_start ({patch_token_start}) exceeds token length ({tokens.shape[2]})")
 
-        if tokens.dtype != torch.float32:
-            tokens = tokens.float()
-
         batch_size, num_frames, _, _ = tokens.shape
         camera_and_register_tokens = tokens[:, :, :patch_token_start]
         camera_and_register_tokens = self.token_norm(camera_and_register_tokens)
@@ -71,9 +68,11 @@ class TextAlignmentHead(nn.Module):
         for block in self.readout_blocks:
             readout_tokens = block(readout_tokens, None)
 
-        language_token = self.language_token_norm(readout_tokens[:, 0])
-        text_alignment_embedding = self.embedding_projector(language_token)
-        return {
-            "text_alignment_embedding": F.normalize(text_alignment_embedding, dim=-1),
-            "text_alignment_token": language_token,
-        }
+        language_token = readout_tokens[:, 0].float()
+        with torch.autocast(language_token.device.type, enabled=False):
+            language_token = self.language_token_norm(language_token)
+            text_alignment_embedding = self.embedding_projector(language_token)
+            return {
+                "text_alignment_embedding": F.normalize(text_alignment_embedding, dim=-1),
+                "text_alignment_token": language_token,
+            }
