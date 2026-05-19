@@ -82,7 +82,7 @@ class DenseHead(nn.Module):
         width: int,
         patch_token_start: int,
         frames_chunk_size: int | None = 8,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
         if patch_token_start is None:
             raise ValueError("patch_token_start is required for DenseHead")
 
@@ -141,7 +141,8 @@ class DenseHead(nn.Module):
         fused = self._apply_pos_embed(fused, width, height)
         fused = fused.float()
         if self.feature_only:
-            feature = fused.view(batch_size, num_frames, *fused.shape[1:])
+            feature = F.pixel_shuffle(fused, self.final_shuffle_factor)
+            feature = feature.view(batch_size, num_frames, *feature.shape[1:])
             return feature
 
         with torch.autocast(fused.device.type, enabled=False):
@@ -154,7 +155,7 @@ class DenseHead(nn.Module):
             confidence_logits = confidence_logits.permute(0, 2, 3, 1)
 
             depth = torch.exp(depth_logits)
-            depth_conf = 1.0 + torch.exp(confidence_logits)
+            depth_conf = torch.exp(confidence_logits) + 1.0
 
         depth = depth.view(batch_size, num_frames, *depth.shape[1:])
         depth_conf = depth_conf.view(batch_size, num_frames, *depth_conf.shape[1:])
