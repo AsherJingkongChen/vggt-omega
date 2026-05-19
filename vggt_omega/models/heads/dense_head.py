@@ -171,7 +171,7 @@ class DenseHead(nn.Module):
 
         patch_tokens = patch_tokens.flatten(0, 1)
         patch_tokens = self.norm(patch_tokens)
-        patch_tokens = patch_tokens.permute(0, 2, 1).unflatten(2, (patch_h, patch_w))
+        patch_tokens = patch_tokens.permute(0, 2, 1).contiguous().unflatten(2, (patch_h, patch_w))
         patch_tokens = self.projects[feature_idx](patch_tokens)
         patch_tokens = self._apply_pos_embed(patch_tokens, width, height)
         patch_tokens = self.resize_layers[feature_idx](patch_tokens)
