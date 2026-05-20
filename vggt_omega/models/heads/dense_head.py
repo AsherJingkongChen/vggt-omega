@@ -138,13 +138,13 @@ class DenseHead(nn.Module):
             multi_scale_features.append(x)
 
         fused = checkpoint(self.scratch_forward, multi_scale_features, use_reentrant=False)
-        fused = self._apply_pos_embed(fused, width, height)
-        fused = fused.float()
         if self.feature_only:
-            feature = F.pixel_shuffle(fused, self.final_shuffle_factor)
+            feature = custom_interpolate(fused, size=(height, width), mode="bilinear", align_corners=True)
+            feature = self._apply_pos_embed(feature, width, height).float()
             feature = feature.view(batch_size, num_frames, *feature.shape[1:])
             return feature
 
+        fused = self._apply_pos_embed(fused, width, height).float()
         with torch.autocast(fused.device.type, enabled=False):
             depth_logits = self.proj(fused)
             depth_logits = F.pixel_shuffle(depth_logits, self.final_shuffle_factor)
@@ -159,10 +159,6 @@ class DenseHead(nn.Module):
 
         depth = depth.view(batch_size, num_frames, *depth.shape[1:])
         depth_conf = depth_conf.view(batch_size, num_frames, *depth_conf.shape[1:])
-
-        # TODO: Debug, should be redundant
-        if depth.dtype != torch.float32 or depth_conf.dtype != torch.float32:
-            raise TypeError(f"DenseHead outputs must be fp32, got depth={depth.dtype}, conf={depth_conf.dtype}")
 
         return depth, depth_conf
 
