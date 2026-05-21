@@ -50,3 +50,22 @@ def encoding_to_camera(pose_encoding, image_size_hw, build_intrinsics=True):
         intrinsics[..., 2, 2] = 1.0
 
     return extrinsics, intrinsics
+
+
+def align_pose_encoding(target: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    """
+    Sign-align the quaternion (4) block of a pose encoding to reference, so the
+    double cover (q and -q are one rotation) cannot inflate their elementwise
+    distance. Translation and FoV are left untouched.
+
+    Args:
+        target: Pose encodings as tensor of shape (..., 9).
+        reference: Pose encodings as tensor of shape (..., 9).
+
+    Returns:
+        target with its quaternion block flipped where it opposes reference,
+        as tensor of shape (..., 9).
+    """
+    quat = target[..., 3:7]
+    quat = quat.where(quat.mul(reference[..., 3:7]).sum(dim=-1, keepdim=True) >= 0.0, -quat)
+    return torch.cat([target[..., :3], quat, target[..., 7:]], dim=-1)
